@@ -3,88 +3,50 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>構図サポートアプリ（スマホ対応）</title>
+<title>構図サポートアプリ（iOS対応）</title>
 
 <style>
 :root { color-scheme: dark; }
-
 body{
-  margin:0;
-  background:#111;
-  color:#fff;
+  margin:0; background:#111; color:#fff;
   font-family:system-ui,sans-serif;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  min-height:100vh;
-  touch-action:manipulation;
+  display:flex; flex-direction:column;
+  align-items:center; min-height:100vh;
 }
-
-h1{
-  font-size:18px;
-  margin:10px 0;
-}
-
+h1{ font-size:18px; margin:10px 0; }
 canvas{
   border:1px solid #555;
-  width:100vw;
-  height:auto;
-  max-height:70vh;
+  width:100vw; max-height:70vh;
 }
-
-#controls,#sensitivity{
-  margin-top:10px;
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  justify-content:center;
-}
-
 button{
-  padding:12px 18px;
+  padding:14px 20px;
   font-size:16px;
   min-height:44px;
-  background:#444;
-  color:#fff;
-  border:none;
-  border-radius:8px;
+  background:#444; color:#fff;
+  border:none; border-radius:8px;
 }
-
+#controls,#sensitivity{
+  margin-top:10px;
+  display:flex; gap:10px;
+  flex-wrap:wrap; justify-content:center;
+}
 #sensitivity{
   flex-direction:column;
-  width:90%;
-  max-width:320px;
+  width:90%; max-width:320px;
 }
-
-label{
-  display:flex;
-  justify-content:space-between;
-  font-size:14px;
-}
-
-input[type=range]{
-  width:100%;
-  height:32px;
-}
-
-#score{
-  margin:10px 0 20px;
-  font-size:18px;
-}
-
+label{ display:flex; justify-content:space-between; }
 #video{
-  position:absolute;
-  width:1px;
-  height:1px;
-  opacity:0;
+  position:absolute; width:1px; height:1px; opacity:0;
 }
 </style>
 </head>
 
 <body>
-<h1>構図サポートアプリ（距離スコア評価）</h1>
+<h1>構図サポートアプリ（iOS対応）</h1>
 
-<video id="video" autoplay playsinline muted></video>
+<button id="startBtn">📷 カメラ開始</button>
+
+<video id="video" playsinline muted></video>
 <canvas id="canvas"></canvas>
 
 <div id="controls">
@@ -110,22 +72,23 @@ let ctx = canvas.getContext('2d');
 let useThree = true;
 let useFront = false;
 let stream;
-
 let src, gray, edges;
 let cvReady = false;
 
 const dpr = window.devicePixelRatio || 1;
-
 const th1 = document.getElementById('th1');
 const th2 = document.getElementById('th2');
 th1.oninput = ()=> th1val.textContent = th1.value;
 th2.oninput = ()=> th2val.textContent = th2.value;
 
 window.Module = {
-  onRuntimeInitialized(){
-    cvReady = true;
-    init();
-  }
+  onRuntimeInitialized(){ cvReady = true; }
+};
+
+document.getElementById('startBtn').onclick = async ()=>{
+  await startCamera();
+  initCV();
+  loop();
 };
 
 document.getElementById('switchBtn').onclick = async ()=>{
@@ -133,123 +96,67 @@ document.getElementById('switchBtn').onclick = async ()=>{
   await startCamera();
 };
 
-document.getElementById('gridBtn').onclick = ()=>{
-  useThree = !useThree;
-};
+document.getElementById('gridBtn').onclick = ()=> useThree = !useThree;
 
 function resizeCanvas(){
-  const vw = window.innerWidth;
-  const vh = window.innerHeight * 0.7;
-
-  canvas.style.width  = vw + "px";
-  canvas.style.height = vh + "px";
-
-  canvas.width  = Math.floor(vw * dpr);
-  canvas.height = Math.floor(vh * dpr);
-
+  const w = innerWidth;
+  const h = innerHeight * 0.7;
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
   ctx.setTransform(dpr,0,0,dpr,0,0);
 }
 
 async function startCamera(){
   if(stream) stream.getTracks().forEach(t=>t.stop());
 
-  stream = await navigator.mediaDevices.getUserMedia({
-    video:{ facingMode: useFront ? "user" : "environment" }
-  });
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode: useFront ? "user" : { exact:"environment" }
+      }
+    });
+  }catch{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode: useFront ? "user" : "environment" }
+    });
+  }
 
   video.srcObject = stream;
   await video.play();
+  resizeCanvas();
+}
+
+function initCV(){
+  src = new cv.Mat(canvas.height/dpr, canvas.width/dpr, cv.CV_8UC4);
+  gray = new cv.Mat();
+  edges = new cv.Mat();
 }
 
 function drawGrid(){
-  const w = canvas.width / dpr;
-  const h = canvas.height / dpr;
-  ctx.strokeStyle = "rgba(255,255,255,0.6)";
-  ctx.lineWidth = 1;
-
+  const w = canvas.width/dpr, h = canvas.height/dpr;
+  ctx.strokeStyle="rgba(255,255,255,0.6)";
   if(useThree){
-    [w/3,2*w/3].forEach(x=>{
-      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
-    });
-    [h/3,2*h/3].forEach(y=>{
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
-    });
+    [w/3,2*w/3].forEach(x=>{ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();});
+    [h/3,2*h/3].forEach(y=>{ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();});
   }else{
-    ctx.beginPath();
-    ctx.moveTo(0,h/2);
-    ctx.lineTo(w,h/2);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
   }
-}
-
-function calcScore(points){
-  if(points.length===0) return 0;
-  const tol = 50;
-  let sum = 0;
-
-  points.forEach(p=>{
-    let d;
-    if(useThree){
-      const ys=[canvas.height/3,2*canvas.height/3];
-      d = Math.min(...ys.map(y=>Math.abs(p.y-y)));
-    }else{
-      d = Math.abs(p.y-canvas.height/2);
-    }
-    sum += Math.max(0,1-d/tol);
-  });
-
-  return Math.round(sum/points.length*100);
 }
 
 function loop(){
-  if(!cvReady || video.readyState < 2){
-    requestAnimationFrame(loop);
-    return;
-  }
+  if(!cvReady || video.readyState<2){ requestAnimationFrame(loop); return; }
 
   ctx.drawImage(video,0,0,canvas.width/dpr,canvas.height/dpr);
   let img = ctx.getImageData(0,0,canvas.width/dpr,canvas.height/dpr);
   src.data.set(img.data);
 
-  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray, gray, new cv.Size(5,5), 0);
-  cv.Canny(gray, edges, +th1.value, +th2.value);
-
-  let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3,3));
-  cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernel);
-
-  let points = [];
-  ctx.fillStyle = "red";
-
-  const STEP = window.innerWidth < 600 ? 3 : 1;
-
-  for(let y=0;y<edges.rows;y+=STEP){
-    for(let x=0;x<edges.cols;x+=STEP){
-      if(edges.ucharPtr(y,x)[0] > 0){
-        points.push({x,y});
-        ctx.fillRect(x,y,1,1);
-      }
-    }
-  }
+  cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
+  cv.Canny(gray,edges,+th1.value,+th2.value);
 
   drawGrid();
-  document.getElementById('score').textContent =
-    "Score: " + calcScore(points);
-
-  kernel.delete();
   requestAnimationFrame(loop);
-}
-
-async function init(){
-  await startCamera();
-  resizeCanvas();
-  window.addEventListener("resize", resizeCanvas);
-
-  src   = new cv.Mat(canvas.height/dpr, canvas.width/dpr, cv.CV_8UC4);
-  gray  = new cv.Mat();
-  edges = new cv.Mat();
-
-  loop();
 }
 </script>
 </body>
